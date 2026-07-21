@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Disc3, Music, Play, Square, Waves } from 'lucide-react';
+import { ChevronDown, ChevronUp, Disc3, Music, Play, Square } from 'lucide-react';
 import { pianoSongs, type PianoSong } from '../data/songs';
-import type { PianoSound, SongPlayback, ViolinStyle } from '../hooks/useChordPlayer';
+import type { PianoSound, SongPlayback } from '../hooks/useChordPlayer';
 import { drumPatterns } from '../data/drums';
+import { NOTES } from '../data/chords';
 
 interface Props {
   playback: SongPlayback;
@@ -13,17 +14,15 @@ interface Props {
   onDrumPatternChange: (pattern: string) => void;
   pianoSound: PianoSound;
   onPianoSoundChange: (sound: PianoSound) => void;
-  violinEnabled: boolean;
-  onViolinEnabledChange: (enabled: boolean) => void;
-  violinStyle: ViolinStyle;
-  onViolinStyleChange: (style: ViolinStyle) => void;
+  songKey: string;
+  onSongKeyChange: (key: string) => void;
   onPlay: (song: PianoSong) => void;
   onStop: () => void;
 }
 
 const pianoSounds: PianoSound[] = ['Open Stage Grand', 'Concert Grand', 'Bright Grand', 'Warm Studio Piano'];
 
-export function SongLibrary({ playback, ready, tempo, onTempoChange, drumPattern, onDrumPatternChange, pianoSound, onPianoSoundChange, violinEnabled, onViolinEnabledChange, violinStyle, onViolinStyleChange, onPlay, onStop }: Props) {
+export function SongLibrary({ playback, ready, tempo, onTempoChange, drumPattern, onDrumPatternChange, pianoSound, onPianoSoundChange, songKey, onSongKeyChange, onPlay, onStop }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const activeSong = pianoSongs.find(song => song.id === playback.songId);
@@ -84,20 +83,19 @@ export function SongLibrary({ playback, ready, tempo, onTempoChange, drumPattern
       </div>}
 
       {activeSong && <div className="mt-3 flex flex-wrap items-center gap-3 border border-border bg-background px-3 py-2">
+        <label htmlFor="song-key" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Song key</label>
+        <select id="song-key" value={songKey} onChange={event => onSongKeyChange(event.target.value)} className="border border-cyan-400/50 bg-card px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-cyan-300">
+          {NOTES.map(root => {
+            const mode = activeSong.key.endsWith('Minor') ? 'Minor' : 'Major';
+            const key = `${root} ${mode}`;
+            return <option key={key} value={key}>{key}</option>;
+          })}
+        </select>
+        <span className="hidden h-6 w-px bg-border sm:block" />
         <label htmlFor="piano-sound" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Piano sound</label>
         <select id="piano-sound" value={pianoSound} onChange={event => onPianoSoundChange(event.target.value as PianoSound)} className="border border-primary/50 bg-card px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-primary">
           {pianoSounds.map(sound => <option key={sound} value={sound}>{sound}</option>)}
         </select>
-        <span className="hidden h-6 w-px bg-border sm:block" />
-        <button type="button" aria-pressed={violinEnabled} onClick={() => onViolinEnabledChange(!violinEnabled)} className={`flex h-8 items-center gap-2 border px-3 font-mono text-[10px] font-bold uppercase tracking-wider transition-colors ${violinEnabled ? 'border-fuchsia-400 bg-fuchsia-400/15 text-fuchsia-200' : 'border-border text-muted-foreground hover:border-fuchsia-400/60'}`}>
-          <Waves className="h-3.5 w-3.5" />Accompaniment {violinEnabled ? 'On' : 'Off'}
-        </button>
-        {violinEnabled && <><label htmlFor="violin-style" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Player</label>
-        <select id="violin-style" value={violinStyle} onChange={event => onViolinStyleChange(event.target.value as ViolinStyle)} className="border border-fuchsia-400/50 bg-card px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-fuchsia-300">
-          <option value="Smooth Legato">Violin · Smooth Solo</option>
-          <option value="Bass Guitar">Bass Guitar · Session Bassist</option>
-          <option value="Cinematic Pads">Cinematic · Pads & Harmonies</option>
-        </select></>}
         <span className="hidden h-6 w-px bg-border sm:block" />
         <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Song tempo</span>
         <div className="flex items-center border border-cyan-400/40 bg-card" role="group" aria-label="Song tempo">
@@ -118,7 +116,7 @@ export function SongLibrary({ playback, ready, tempo, onTempoChange, drumPattern
           <div className="absolute inset-y-0 left-0 bg-primary/10 transition-[width] duration-300" style={{ width: `${playback.progress}%` }} />
           <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div><span className="block font-mono text-[9px] uppercase text-muted-foreground">Now playing</span><span className="font-mono text-sm font-bold text-foreground">{activeSong.title}</span></div>
-            <div><span className="block font-mono text-[9px] uppercase text-muted-foreground">Key</span><span className="font-mono text-xl font-bold text-primary">{activeSong.key}</span></div>
+            <div><span className="block font-mono text-[9px] uppercase text-muted-foreground">Key</span><span className="font-mono text-xl font-bold text-primary">{playback.key}</span></div>
             <div><span className="block font-mono text-[9px] uppercase text-muted-foreground">Mode</span><span className="font-mono text-sm font-bold text-cyan-300">{playback.midiMode ? `Pure piano · ${tempo} BPM` : playback.chord}</span></div>
             <div><span className="block font-mono text-[9px] uppercase text-muted-foreground">Measure</span><span className="font-mono text-xl font-bold text-foreground">{playback.measure}/{playback.totalMeasures}</span></div>
           </div>

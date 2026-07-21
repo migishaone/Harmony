@@ -10,14 +10,18 @@ import { WelcomeOverlay } from '../components/WelcomeOverlay';
 import { PianoControls } from '../components/PianoControls';
 import { PianoKeyboard } from '../components/PianoKeyboard';
 import { SongLibrary } from '../components/SongLibrary';
+import { ChordNoteList } from '../components/ChordNoteList';
 import { pianoSongs } from '../data/songs';
+
+const GESTURE_SWITCH_STABILITY_MS = 90;
+const GESTURE_RELEASE_GRACE_MS = 320;
 
 export function Home() {
   const [started, setStarted] = useState(false);
   const [activeKeySet, setActiveKeySet] = useState(keySets[0]); // Default C Major
   const [filterType, setFilterType] = useState<ChordType | "All">("All");
   
-  const { instrument, setInstrument, volume, setVolume, playChord, sustainChord, releaseChord, pianoSettings, setPianoSettings, pianoReady, performanceNotes, playNote, releaseNote, songPlayback, playSong, stopSong, songTempo, setSongTempo, drumPattern, setDrumPattern, pianoSound, setPianoSound, violinEnabled, setViolinEnabled, violinStyle, setViolinStyle } = useChordPlayer();
+  const { instrument, setInstrument, volume, setVolume, playChord, releaseChord, pianoSettings, setPianoSettings, pianoReady, performanceNotes, playNote, releaseNote, songPlayback, playSong, stopSong, songTempo, setSongTempo, songKey, setSongKey, drumPattern, setDrumPattern, pianoSound, setPianoSound } = useChordPlayer();
   const {
     pointerPosition,
     openness,
@@ -32,6 +36,7 @@ export function Home() {
   const [directSector, setDirectSector] = useState<number | null>(null);
   const wheelRef = useRef<HTMLDivElement | null>(null);
   const tempoRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gestureCandidateRef = useRef<{ sector: number | null; since: number }>({ sector: null, since: 0 });
   
   // Filter chords based on selection
   const visibleChords = useMemo(() => {
@@ -49,6 +54,9 @@ export function Home() {
   };
 
   const selectSector = (sector: number | null) => {
+    // The song scheduler owns the shared transport while it is playing. Ring
+    // input is ignored so a click, touch, or pointer-leave cannot stop the song.
+    if (songPlayback.playing) return;
     setDirectSector(sector);
     if (!started) return;
     setActiveSector(sector);
@@ -72,7 +80,15 @@ export function Home() {
     setActiveSector(null);
     setDirectSector(null);
     setSongTempo(song.bpm);
+    setSongKey(song.key);
     playSong(song);
+  };
+
+  const handleSongKeyChange = (key: string) => {
+    setSongKey(key);
+    if (!songPlayback.songId) return;
+    const activeSong = pianoSongs.find(song => song.id === songPlayback.songId);
+    if (activeSong) playSong(activeSong);
   };
 
   const handleSongTempoChange = (tempo: number) => {
@@ -91,36 +107,61 @@ export function Home() {
     if (activeSong) playSong(activeSong);
   };
 
-  const restartActiveSong = (change: () => void) => {
-    change();
-    if (!songPlayback.playing || !songPlayback.songId) return;
-    const activeSong = pianoSongs.find(song => song.id === songPlayback.songId);
-    if (activeSong) setTimeout(() => playSong(activeSong), 0);
-  };
-
   useEffect(() => () => {
     if (tempoRestartRef.current) clearTimeout(tempoRestartRef.current);
   }, []);
 
   useEffect(() => {
+    // Song playback owns the audio engine. Camera jitter must not select or
+    // release ring chords while a score is being performed.
+    if (songPlayback.playing) return;
     if (directSector !== null) return;
+    let target: number | null = null;
     if (!detected || !isPointing || pointerAngle === null || !wheelRef.current || visibleChords.length === 0) {
-      if (activeSector !== null) { setActiveSector(null); releaseChord(); }
+      target = null;
+    } else {
+      const rect = wheelRef.current.getBoundingClientRect();
+      const distance = Math.hypot(pointerPosition!.x - (rect.left + rect.width / 2), pointerPosition!.y - (rect.top + rect.height / 2));
+      const size = Math.min(rect.width, rect.height);
+      if (distance >= size * 0.125 && distance <= size * 0.475) {
+        const anglePerSector = (2 * Math.PI) / visibleChords.length;
+        const normalized = (pointerAngle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2);
+        target = Math.floor(((normalized + anglePerSector / 2) % (Math.PI * 2)) / anglePerSector);
+      }
+    }
+
+    if (target === activeSector) {
+      gestureCandidateRef.current = { sector: target, since: performance.now() };
       return;
     }
-    const rect = wheelRef.current.getBoundingClientRect();
-    const distance = Math.hypot(pointerPosition!.x - (rect.left + rect.width / 2), pointerPosition!.y - (rect.top + rect.height / 2));
-    const size = Math.min(rect.width, rect.height);
-    if (distance < size * 0.125 || distance > size * 0.475) {
-      if (activeSector !== null) { setActiveSector(null); releaseChord(); }
+
+    // The first valid gesture must always produce sound immediately. Requiring
+    // several identical camera frames here can leave the piano silent when a
+    // naturally jittery fingertip crosses sector edges between detections.
+    if (activeSector === null && target !== null) {
+      gestureCandidateRef.current = { sector: target, since: performance.now() };
+      setActiveSector(target);
+      playChord(visibleChords[target]);
       return;
     }
-    const anglePerSector = (2 * Math.PI) / visibleChords.length;
-    const normalized = (pointerAngle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2);
-    const target = Math.floor(((normalized + anglePerSector / 2) % (Math.PI * 2)) / anglePerSector);
-    if (target !== activeSector) { setActiveSector(target); playChord(visibleChords[target]); }
-    else sustainChord();
-  }, [pointerAngle, pointerPosition, detected, isPointing, visibleChords, activeSector, directSector, playChord, releaseChord, sustainChord]);
+
+    const now = performance.now();
+    if (gestureCandidateRef.current.sector !== target) {
+      gestureCandidateRef.current = { sector: target, since: now };
+      return;
+    }
+    // Hand tracking commonly loses the fingertip for one or two frames while
+    // the player moves between sectors. Switching should feel responsive, but
+    // silence should require a longer, deliberate move away from the wheel.
+    const requiredStability = target === null
+      ? GESTURE_RELEASE_GRACE_MS
+      : GESTURE_SWITCH_STABILITY_MS;
+    if (now - gestureCandidateRef.current.since < requiredStability) return;
+
+    setActiveSector(target);
+    if (target === null) releaseChord();
+    else playChord(visibleChords[target]);
+  }, [pointerAngle, pointerPosition, detected, isPointing, visibleChords, activeSector, directSector, songPlayback.playing, playChord, releaseChord]);
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-background text-foreground">
@@ -164,8 +205,11 @@ export function Home() {
 
       {/* Main Center Area */}
       {!(songPlayback.playing && songPlayback.midiMode) && <main className="relative z-10 flex min-h-[420px] flex-1 items-center justify-center p-4 sm:p-6">
-        <div className="flex min-h-0 w-full flex-1 items-center justify-center">
-          <ChordWheel chords={visibleChords} activeIdx={activeSector} pointerAngle={isPointing ? pointerAngle : null} containerRef={wheelRef} onPointerSectorChange={selectSector} />
+        <div className="flex min-h-0 w-full max-w-5xl flex-1 flex-col items-center justify-center gap-4 xl:flex-row xl:gap-6">
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <ChordWheel chords={visibleChords} activeIdx={activeSector} pointerAngle={isPointing ? pointerAngle : null} containerRef={wheelRef} onPointerSectorChange={selectSector} disabled={songPlayback.playing} />
+          </div>
+          <ChordNoteList chords={visibleChords} activeIdx={activeSector} />
         </div>
       </main>}
 
@@ -173,7 +217,7 @@ export function Home() {
       <div className="relative z-10 mt-auto">
         {instrument === 'Grand Piano' && (
           <>
-            <SongLibrary playback={songPlayback} ready={pianoReady} tempo={songTempo} onTempoChange={handleSongTempoChange} drumPattern={drumPattern} onDrumPatternChange={handleDrumPatternChange} pianoSound={pianoSound} onPianoSoundChange={setPianoSound} violinEnabled={violinEnabled} onViolinEnabledChange={enabled => restartActiveSong(() => setViolinEnabled(enabled))} violinStyle={violinStyle} onViolinStyleChange={style => restartActiveSong(() => setViolinStyle(style))} onPlay={handlePlaySong} onStop={stopSong} />
+            <SongLibrary playback={songPlayback} ready={pianoReady} tempo={songTempo} onTempoChange={handleSongTempoChange} songKey={songKey} onSongKeyChange={handleSongKeyChange} drumPattern={drumPattern} onDrumPatternChange={handleDrumPatternChange} pianoSound={pianoSound} onPianoSoundChange={setPianoSound} onPlay={handlePlaySong} onStop={stopSong} />
             {!(songPlayback.playing && songPlayback.midiMode) && <PianoControls settings={pianoSettings} ready={pianoReady} performanceNotes={performanceNotes} onChange={setPianoSettings} />}
             <PianoKeyboard onNoteAttack={playNote} onNoteRelease={releaseNote} playedNotes={songPlayback.activeNotes} keyCount={songPlayback.keyboardSize} />
           </>

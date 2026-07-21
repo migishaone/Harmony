@@ -1,10 +1,9 @@
-import { KeySet } from "../data/chords";
+import { ChordType, KeySet } from "../data/chords";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Volume2, VolumeX } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChordType } from "../data/chords";
 
 interface Props {
   keySets: KeySet[];
@@ -31,7 +30,7 @@ export function KeySelector({ keySets, activeKeySet, onSelectKeySet, volume, onV
         {/* Type Filter */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground font-mono uppercase tracking-widest">Filter</span>
-          <Select value={filterType} onValueChange={(val) => onFilterChange(val as any)}>
+          <Select value={filterType} onValueChange={(val) => onFilterChange(val as ChordType | "All")}>
             <SelectTrigger className="w-[120px] h-8 bg-card border-card-border font-mono text-xs">
               <SelectValue />
             </SelectTrigger>
@@ -40,7 +39,6 @@ export function KeySelector({ keySets, activeKeySet, onSelectKeySet, volume, onV
               <SelectItem value="Major">Major</SelectItem>
               <SelectItem value="Minor">Minor</SelectItem>
               <SelectItem value="7th">7th</SelectItem>
-              <SelectItem value="Maj7">Maj7</SelectItem>
               <SelectItem value="Dim">Diminished</SelectItem>
             </SelectContent>
           </Select>

@@ -8,6 +8,7 @@ interface Props {
   containerRef: RefObject<HTMLDivElement | null>;
   onPointerSectorChange: (index: number | null) => void;
   songChord?: string | null;
+  disabled?: boolean;
 }
 
 export function ChordWheel({
@@ -17,6 +18,7 @@ export function ChordWheel({
   containerRef,
   onPointerSectorChange,
   songChord = null,
+  disabled = false,
 }: Props) {
   const numSectors = chords.length;
   
@@ -99,18 +101,20 @@ export function ChordWheel({
       ref={containerRef}
       className="relative aspect-square h-auto w-[min(100%,min(58vh,38rem))] shrink-0 touch-none"
       onPointerMove={(event) =>
-        onPointerSectorChange(sectorFromPointer(event.clientX, event.clientY))
+        !disabled && onPointerSectorChange(sectorFromPointer(event.clientX, event.clientY))
       }
       onPointerDown={(event) => {
+        if (disabled) return;
         event.currentTarget.setPointerCapture(event.pointerId);
         onPointerSectorChange(sectorFromPointer(event.clientX, event.clientY));
       }}
-      onPointerLeave={() => onPointerSectorChange(null)}
+      onPointerLeave={() => !disabled && onPointerSectorChange(null)}
       onPointerUp={(event) => {
-        if (event.pointerType !== 'mouse') onPointerSectorChange(null);
+        if (!disabled && event.pointerType !== 'mouse') onPointerSectorChange(null);
       }}
       role="group"
       aria-label="Playable chord wheel"
+      aria-disabled={disabled}
     >
       <svg 
         viewBox="-100 -100 200 200" 

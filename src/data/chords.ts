@@ -1,6 +1,6 @@
 export const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-export type ChordType = "Major" | "Minor" | "7th" | "Maj7" | "min7" | "Sus2" | "Sus4" | "Dim" | "Aug";
+export type ChordType = "Major" | "Minor" | "7th" | "Dim";
 
 export interface ChordDef {
   name: string;
@@ -32,17 +32,11 @@ export const buildChord = (root: string, type: ChordType, octave = 3): ChordDef 
     case "Major": intervals = [0, 4, 7]; break;
     case "Minor": intervals = [0, 3, 7]; break;
     case "7th": intervals = [0, 4, 7, 10]; break;
-    case "Maj7": intervals = [0, 4, 7, 11]; break;
-    case "min7": intervals = [0, 3, 7, 10]; break;
-    case "Sus2": intervals = [0, 2, 7]; break;
-    case "Sus4": intervals = [0, 5, 7]; break;
     case "Dim": intervals = [0, 3, 6]; break;
-    case "Aug": intervals = [0, 4, 8]; break;
   }
 
   const suffixMap: Record<ChordType, string> = {
-    Major: "", Minor: "m", "7th": "7", Maj7: "maj7", min7: "m7",
-    Sus2: "sus2", Sus4: "sus4", Dim: "dim", Aug: "aug"
+    Major: "", Minor: "m", "7th": "7", Dim: "dim"
   };
 
   const suffix = suffixMap[type];
@@ -105,12 +99,12 @@ NOTES.forEach(note => {
 
 // Add Chromatic Modes
 const circleOfFifths = ["C", "G", "D", "A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F"];
-export const chromaticMajor: KeySet = {
+const chromaticMajor: KeySet = {
   name: "Chromatic (Major)",
   chords: circleOfFifths.map(note => buildChord(note, "Major"))
 };
 
-export const chromaticMinor: KeySet = {
+const chromaticMinor: KeySet = {
   name: "Chromatic (Minor)",
   chords: circleOfFifths.map(note => buildChord(note, "Minor"))
 };
