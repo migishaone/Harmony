@@ -31,6 +31,18 @@ export interface PianoSong {
 
 export const pianoSongs: PianoSong[] = [
   {
+    id: 'rwanda-nziza', title: 'Rwanda Nziza', composer: 'Rwandan National Anthem', key: 'G Major', bpm: 92, beatsPerBar: 2, beatUnit: 4, mood: 'Original MIDI · Rwanda national anthem · Piano arrangement', midiUrl: '/songs/rwanda.mid', allowDrums: false, measures: [],
+  },
+  {
+    id: 'burundi-anthem', title: 'Burundi Bwacu', composer: 'Burundian National Anthem', key: 'D# Major', bpm: 74, beatsPerBar: 4, beatUnit: 4, mood: 'Original MIDI · Burundi national anthem · Piano rendering', midiUrl: '/songs/burundi.mid', includeAllPitchedTracks: true, excludedMidiChannels: [4, 5, 6, 8], allowDrums: false, measures: [],
+  },
+  {
+    id: 'india-anthem', title: 'Jana Gana Mana', composer: 'Rabindranath Tagore', key: 'G# Major', bpm: 90, beatsPerBar: 4, beatUnit: 4, mood: 'Original MIDI · Indian national anthem · Piano arrangement', midiUrl: '/songs/india-anthem.mid', excludedMidiChannels: [13], allowDrums: false, measures: [],
+  },
+  {
+    id: 'south-africa-anthem', title: 'National Anthem of South Africa', composer: 'South African National Anthem', key: 'D Major', bpm: 78, beatsPerBar: 4, beatUnit: 4, mood: 'Original MIDI · South African national anthem · Piano rendering', midiUrl: '/songs/south-africa-anthem.mid', includeAllPitchedTracks: true, excludedMidiChannels: [4, 5, 6, 7, 8], allowDrums: false, measures: [],
+  },
+  {
     id: 'everytime', title: 'Everytime', composer: 'Britney Spears', key: 'D# Major', bpm: 108, beatsPerBar: 4, beatUnit: 4, mood: 'Original MIDI · Melody and accompaniment · Piano rendering', midiUrl: '/songs/everytime.mid', includeAllPitchedTracks: true, excludedMidiChannels: [7, 9, 11], measures: [],
   },
   {
