@@ -9,7 +9,7 @@ const rootDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, rootDirectory, '');
-  const port = Number(env.PORT || 3001);
+  const port = Number(env.PORT || 3032);
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`PORT must be a valid port number. Received: ${env.PORT}`);

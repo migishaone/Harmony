@@ -80,8 +80,8 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3001>, select **Initialize System**, and grant camera
-access when prompted. Change `PORT` in `.env` if port `3001` is unavailable.
+Open <http://localhost:3032>, select **Initialize System**, and grant camera
+access when prompted. Change `PORT` in `.env` if port `3032` is unavailable.
 
 ## Available commands
 
