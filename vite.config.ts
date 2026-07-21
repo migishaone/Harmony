@@ -23,14 +23,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      host: 'localhost',
+      host: '0.0.0.0',
       port,
       strictPort: true,
+      allowedHosts: ['harmony.xenovalabs.com'],
     },
     preview: {
-      host: 'localhost',
+      host: '0.0.0.0',
       port,
       strictPort: true,
+      allowedHosts: ['harmony.xenovalabs.com'],
     },
     build: {
       rollupOptions: {
