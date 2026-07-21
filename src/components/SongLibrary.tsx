@@ -90,12 +90,13 @@ export function SongLibrary({ playback, ready, tempo, onTempoChange, drumPattern
         </select>
         <span className="hidden h-6 w-px bg-border sm:block" />
         <button type="button" aria-pressed={violinEnabled} onClick={() => onViolinEnabledChange(!violinEnabled)} className={`flex h-8 items-center gap-2 border px-3 font-mono text-[10px] font-bold uppercase tracking-wider transition-colors ${violinEnabled ? 'border-fuchsia-400 bg-fuchsia-400/15 text-fuchsia-200' : 'border-border text-muted-foreground hover:border-fuchsia-400/60'}`}>
-          <Waves className="h-3.5 w-3.5" />Violin {violinEnabled ? 'On' : 'Off'}
+          <Waves className="h-3.5 w-3.5" />Accompaniment {violinEnabled ? 'On' : 'Off'}
         </button>
-        {violinEnabled && <><label htmlFor="violin-style" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Style</label>
+        {violinEnabled && <><label htmlFor="violin-style" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Player</label>
         <select id="violin-style" value={violinStyle} onChange={event => onViolinStyleChange(event.target.value as ViolinStyle)} className="border border-fuchsia-400/50 bg-card px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-fuchsia-300">
-          <option value="Pizzicato">Pizzicato · Plucked</option>
-          <option value="Smooth Legato">Smooth · Legato</option>
+          <option value="Smooth Legato">Violin · Smooth Solo</option>
+          <option value="Bass Guitar">Bass Guitar · Session Bassist</option>
+          <option value="Cinematic Pads">Cinematic · Pads & Harmonies</option>
         </select></>}
         <span className="hidden h-6 w-px bg-border sm:block" />
         <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Song tempo</span>

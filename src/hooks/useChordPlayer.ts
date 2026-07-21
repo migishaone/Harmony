@@ -11,7 +11,7 @@ export type ArpeggioRate = '4n' | '8n' | '8t' | '16n';
 export type AccompanimentPattern = 'Root & Fifth' | 'Octaves' | 'Alberti' | 'Waltz';
 export type PianoVoicing = 'Compact' | 'Open' | 'Concert' | 'Wide' | 'Cinematic';
 export type PianoSound = 'Open Stage Grand' | 'Concert Grand' | 'Bright Grand' | 'Warm Studio Piano';
-export type ViolinStyle = 'Pizzicato' | 'Smooth Legato';
+export type ViolinStyle = 'Smooth Legato' | 'Bass Guitar' | 'Cinematic Pads';
 
 const PIANO_SOUND_PROFILES: Record<PianoSound, { low: number; mid: number; high: number; width: number; chorus: number; ambience: number }> = {
   'Open Stage Grand': { low: 2.2, mid: 0.8, high: 1.8, width: 0.58, chorus: 0.08, ambience: 0.16 },
@@ -68,8 +68,12 @@ const PIANO_SAMPLES: Record<string, string> = {
   A6: 'A6.mp3', C7: 'C7.mp3', 'D#7': 'Ds7.mp3', 'F#7': 'Fs7.mp3',
   A7: 'A7.mp3', C8: 'C8.mp3',
 };
-const PIZZICATO_VIOLIN_SAMPLES = { C3: 'studio-violins-2-C3.wav' };
 const LEGATO_VIOLIN_SAMPLES = { C4: 'violin-1-C4.wav' };
+const VIOLIN_MIX_OFFSET_DB = 1;
+const INTERACTIVE_LOOK_AHEAD = 0.01;
+const SONG_LOOK_AHEAD = 0.04;
+const MIDI_START_DELAY = 0.05;
+const ARRANGEMENT_START_DELAY = 0.015;
 
 const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   arpeggio: true,
@@ -192,9 +196,9 @@ export function useChordPlayer() {
   const reverbRef = useRef<Tone.Reverb | null>(null);
   const pianoWidenerRef = useRef<Tone.StereoWidener | null>(null);
   const pianoChorusRef = useRef<Tone.Chorus | null>(null);
-  const violinRef = useRef<Tone.Sampler | null>(null);
-  const pizzicatoViolinRef = useRef<Tone.Sampler | null>(null);
   const legatoViolinRef = useRef<Tone.Sampler | null>(null);
+  const bassGuitarRef = useRef<Tone.MonoSynth | null>(null);
+  const cinematicPadsRef = useRef<Tone.PolySynth<Tone.Synth> | null>(null);
   const violinVolumeRef = useRef<Tone.Volume | null>(null);
   const violinVibratoRef = useRef<Tone.Vibrato | null>(null);
   const [violinEnabled, setViolinEnabledState] = useState(false);
@@ -203,7 +207,7 @@ export function useChordPlayer() {
   const violinStyleRef = useRef<ViolinStyle>('Smooth Legato');
 
   useEffect(() => {
-    Tone.getContext().lookAhead = 0.025;
+    Tone.getContext().lookAhead = INTERACTIVE_LOOK_AHEAD;
     const limiter = new Tone.Limiter(-1).toDestination();
     const synthVolume = new Tone.Volume(volume).connect(limiter);
     const synth = new Tone.PolySynth(Tone.Synth).connect(synthVolume);
@@ -216,13 +220,26 @@ export function useChordPlayer() {
     const piano = new Tone.Sampler({ urls: PIANO_SAMPLES, baseUrl: '/audio/piano/', attack: 0, release: 1.2, onload: () => setPianoReady(true) }).connect(eq);
     // A separate orchestral bus keeps the violin spacious without washing out
     // the piano's attacks.
-    const violinVolume = new Tone.Volume(volume - 10).connect(limiter);
+    const violinVolume = new Tone.Volume(volume + VIOLIN_MIX_OFFSET_DB).connect(limiter);
     const violinReverb = new Tone.Reverb({ decay: 5.4, preDelay: 0.035, wet: 0.48 }).connect(violinVolume);
     const violinWidener = new Tone.StereoWidener(0.72).connect(violinReverb);
     const violinChorus = new Tone.Chorus({ frequency: 1.35, delayTime: 3.2, depth: 0.14, spread: 150, wet: 0.16 }).connect(violinWidener).start();
     const violinVibrato = new Tone.Vibrato({ frequency: 5.35, depth: 0.105, wet: 0.2 }).connect(violinChorus);
     const violinFilter = new Tone.Filter({ frequency: 5200, type: 'lowpass', rolloff: -24 }).connect(violinVibrato);
-    const pizzicatoViolin = new Tone.Sampler({ urls: PIZZICATO_VIOLIN_SAMPLES, baseUrl: '/audio/violin/', attack: 0, release: 0.12 }).connect(violinFilter);
+    const bassCompressor = new Tone.Compressor({ threshold: -18, ratio: 3, attack: 0.008, release: 0.16 }).connect(violinVolume);
+    const bassFilter = new Tone.Filter({ frequency: 1450, type: 'lowpass', rolloff: -24 }).connect(bassCompressor);
+    const bassGuitar = new Tone.MonoSynth({
+      oscillator: { type: 'fatsawtooth', count: 2, spread: 8 },
+      filter: { type: 'lowpass', rolloff: -24, Q: 1.2 },
+      envelope: { attack: 0.008, decay: 0.18, sustain: 0.58, release: 0.16 },
+      filterEnvelope: { attack: 0.004, decay: 0.16, sustain: 0.28, release: 0.12, baseFrequency: 80, octaves: 3.1 },
+    }).connect(bassFilter);
+    const padReverb = new Tone.Reverb({ decay: 7.5, preDelay: 0.045, wet: 0.5 }).connect(violinVolume);
+    const padWidener = new Tone.StereoWidener(0.88).connect(padReverb);
+    const cinematicPads = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'fatsine', count: 3, spread: 28 },
+      envelope: { attack: 0.65, decay: 0.8, sustain: 0.72, release: 2.8 },
+    }).connect(padWidener);
     const legatoViolin = new Tone.Sampler({ urls: LEGATO_VIOLIN_SAMPLES, baseUrl: '/audio/violin/', attack: 0.025, release: 0.7 }).connect(violinFilter);
     const drumVolume = new Tone.Volume(volume - 6).connect(limiter);
     const drumCompressor = new Tone.Compressor({ threshold: -12, ratio: 3.5, attack: 0.004, release: 0.12 }).connect(drumVolume);
@@ -238,9 +255,9 @@ export function useChordPlayer() {
     reverbRef.current = reverb;
     pianoWidenerRef.current = widener;
     pianoChorusRef.current = chorus;
-    violinRef.current = legatoViolin;
-    pizzicatoViolinRef.current = pizzicatoViolin;
     legatoViolinRef.current = legatoViolin;
+    bassGuitarRef.current = bassGuitar;
+    cinematicPadsRef.current = cinematicPads;
     violinVolumeRef.current = violinVolume;
     violinVibratoRef.current = violinVibrato;
     drumSynthsRef.current = { kick, snare, metal };
@@ -249,44 +266,70 @@ export function useChordPlayer() {
       songPartsRef.current.forEach(part => part.dispose());
       if (songVisualTimerRef.current) clearInterval(songVisualTimerRef.current);
       songEventIdsRef.current.forEach(id => Tone.getTransport().clear(id));
-      kick.dispose(); snare.dispose(); metal.dispose(); drumCompressor.dispose(); drumVolume.dispose(); pizzicatoViolin.dispose(); legatoViolin.dispose(); violinFilter.dispose(); violinVibrato.dispose(); violinChorus.dispose(); violinWidener.dispose(); violinReverb.dispose(); violinVolume.dispose(); piano.dispose(); eq.dispose(); compressor.dispose(); chorus.dispose(); widener.dispose(); reverb.dispose(); pianoVolume.dispose(); synth.dispose(); synthVolume.dispose(); limiter.dispose();
+      kick.dispose(); snare.dispose(); metal.dispose(); drumCompressor.dispose(); drumVolume.dispose(); bassGuitar.dispose(); bassFilter.dispose(); bassCompressor.dispose(); cinematicPads.dispose(); padWidener.dispose(); padReverb.dispose(); legatoViolin.dispose(); violinFilter.dispose(); violinVibrato.dispose(); violinChorus.dispose(); violinWidener.dispose(); violinReverb.dispose(); violinVolume.dispose(); piano.dispose(); eq.dispose(); compressor.dispose(); chorus.dispose(); widener.dispose(); reverb.dispose(); pianoVolume.dispose(); synth.dispose(); synthVolume.dispose(); limiter.dispose();
     };
   }, []);
 
   useEffect(() => {
-    // Parse tiny local MIDI assets before the user presses Play. A failed preload
-    // is removed from cache so a later click can retry normally.
-    pianoSongs.forEach(song => {
-      if (!song.midiUrl) return;
-      loadMidi(song.midiUrl).catch(() => midiCache.delete(song.midiUrl!));
-    });
-  }, []);
+    // Give piano samples network/decode priority. MIDI preloading begins only
+    // after the playable instrument is ready, avoiding first-load contention.
+    if (!pianoReady) return;
+    const preloadTimer = window.setTimeout(() => {
+      pianoSongs.forEach(song => {
+        if (!song.midiUrl) return;
+        loadMidi(song.midiUrl).catch(() => midiCache.delete(song.midiUrl!));
+      });
+    }, 250);
+    return () => window.clearTimeout(preloadTimer);
+  }, [pianoReady]);
 
   useEffect(() => { synthRef.current?.set(instruments[instrument] as never); }, [instrument]);
   useEffect(() => {
     synthVolumeRef.current?.volume.rampTo(volume, 0.05);
     pianoVolumeRef.current?.volume.rampTo(volume, 0.05);
     drumVolumeRef.current?.volume.rampTo(volume - 6, 0.05);
-    violinVolumeRef.current?.volume.rampTo(volume - 10, 0.05);
+    violinVolumeRef.current?.volume.rampTo(volume + VIOLIN_MIX_OFFSET_DB, 0.05);
   }, [volume]);
+
+  const releaseAccompaniment = useCallback(() => {
+    legatoViolinRef.current?.releaseAll(Tone.immediate());
+    bassGuitarRef.current?.triggerRelease(Tone.immediate());
+    cinematicPadsRef.current?.releaseAll(Tone.immediate());
+  }, []);
 
   const setViolinEnabled = useCallback((enabled: boolean) => {
     violinEnabledRef.current = enabled;
     setViolinEnabledState(enabled);
-    if (!enabled) violinRef.current?.releaseAll(Tone.immediate());
-  }, []);
+    if (!enabled) releaseAccompaniment();
+  }, [releaseAccompaniment]);
 
   const setViolinStyle = useCallback((style: ViolinStyle) => {
     violinStyleRef.current = style;
     setViolinStyleState(style);
-    pizzicatoViolinRef.current?.releaseAll(Tone.immediate());
-    legatoViolinRef.current?.releaseAll(Tone.immediate());
-  }, []);
+    releaseAccompaniment();
+  }, [releaseAccompaniment]);
 
   const configureViolin = useCallback(() => {
-    const pizzicato = violinStyleRef.current === 'Pizzicato';
-    violinVibratoRef.current?.wet.rampTo(pizzicato ? 0 : 0.2, 0.12);
-    violinRef.current = pizzicato ? pizzicatoViolinRef.current : legatoViolinRef.current;
+    violinVibratoRef.current?.wet.rampTo(0.2, 0.12);
+  }, []);
+
+  const triggerAccompaniment = useCallback((note: string, duration: number, time: number, velocity: number, harmony: string[] = []) => {
+    const style = violinStyleRef.current;
+    if (style === 'Smooth Legato') {
+      legatoViolinRef.current?.triggerAttackRelease(note, duration, time, velocity);
+      return;
+    }
+    if (style === 'Bass Guitar') {
+      let midi = Tone.Frequency(note).toMidi();
+      while (midi > 52) midi -= 12;
+      while (midi < 28) midi += 12;
+      bassGuitarRef.current?.triggerAttackRelease(noteFromMidi(midi), Math.min(duration, 0.9), time, Math.min(0.72, velocity + 0.14));
+      return;
+    }
+    const source = harmony.length > 0 ? harmony : [note, transpose(note, 7), transpose(note, 12)];
+    const pitchClasses = [...new Set(source.map(value => Tone.Frequency(value).toMidi() % 12))];
+    const voicing = pitchClasses.slice(0, 4).map((pitchClass, index) => noteFromMidi(48 + pitchClass + (index > 1 ? 12 : 0)));
+    cinematicPadsRef.current?.triggerAttackRelease(voicing, Math.max(1.4, duration), time, Math.min(0.38, velocity));
   }, []);
 
   const stopPatterns = useCallback(() => {
@@ -307,9 +350,9 @@ export function useChordPlayer() {
     if (songVisualTimerRef.current) clearInterval(songVisualTimerRef.current);
     songVisualTimerRef.current = null;
     songNoteCountsRef.current.clear();
-    violinRef.current?.releaseAll(Tone.immediate());
+    releaseAccompaniment();
     setSongPlayback(EMPTY_SONG);
-  }, []);
+  }, [releaseAccompaniment]);
 
   const startPatterns = useCallback((chord: ChordDef) => {
     loopsRef.current.forEach(loop => loop.dispose());
@@ -484,7 +527,7 @@ export function useChordPlayer() {
     configureViolin();
     // Sampler attacks issued before WAV decoding finishes are silent, so wait
     // for the selected Logic sample before scheduling the performance.
-    if (violinEnabledRef.current) {
+    if (violinEnabledRef.current && violinStyleRef.current === 'Smooth Legato' && !legatoViolinRef.current?.loaded) {
       await Tone.loaded();
       if (requestId !== songRequestRef.current) return;
     }
@@ -515,7 +558,7 @@ export function useChordPlayer() {
       if (requestId !== songRequestRef.current) return;
       // A larger audio look-ahead prevents dense MIDI passages from missing an
       // attack on slower browsers. Interactive latency is restored when stopped.
-      Tone.getContext().lookAhead = 0.08;
+      Tone.getContext().lookAhead = SONG_LOOK_AHEAD;
       // MIDI pedal events provide the sustain; the sampler release only adds a
       // short natural damper tail after each calculated note-off.
       if (pianoRef.current) pianoRef.current.release = 0.1;
@@ -589,28 +632,19 @@ export function useChordPlayer() {
         // Compose a counter-melody on a musical grid. Lower-hand notes provide
         // the harmony; the upper voice only informs contrary contour and never
         // supplies the violin's actual pitch.
-        const pizzicato = violinStyleRef.current === 'Pizzicato';
+        const layerStyle = violinStyleRef.current;
         const upper = performanceEvents.filter(event => event.hand === 'right' && event.note.midi >= 55);
         const lower = performanceEvents.filter(event => event.hand === 'left' || event.note.midi < 60);
-        const gridSeconds = (60 / songTempoRef.current) * 2;
-        const violinEvents: [number, { name: string; duration: number; velocity: number }][] = [];
+        const beatSeconds = 60 / songTempoRef.current;
+        const gridSeconds = beatSeconds * (layerStyle === 'Bass Guitar' ? 1 : layerStyle === 'Cinematic Pads' ? 4 : 2);
+        const violinEvents: [number, { name: string; duration: number; velocity: number; harmony: string[] }][] = [];
         let previousCounter: number | null = null;
         let previousMelody = upper[0]?.note.midi ?? 72;
-        const melodyAttacks = [...new Map(upper.map(event => [Math.round(event.note.time * 100), event])).values()]
-          .sort((a, b) => a.note.time - b.note.time);
-        // Pizzicato answers in the space between consecutive melody attacks.
-        // Legato keeps a slower two-beat phrase grid.
-        const phrasePoints = pizzicato
-          ? melodyAttacks.slice(0, -1).map((event, index) => {
-              const next = melodyAttacks[index + 1];
-              const start = event.note.time / playbackRate;
-              const gap = (next.note.time - event.note.time) / playbackRate;
-              return { time: start + Math.max(0.07, gap * 0.55), melody: event.note.midi, gap };
-            }).filter(point => point.gap >= 0.13)
-          : Array.from({ length: Math.ceil((midi.duration / playbackRate) / gridSeconds) }, (_, step) => {
+        const phrasePoints = Array.from({ length: Math.ceil((midi.duration / playbackRate) / gridSeconds) }, (_, step) => {
               // Occasional eighth-note displacement keeps the solo conversational
               // instead of landing mechanically on every strong beat.
-              const time = step * gridSeconds + (step % 4 === 2 ? (60 / songTempoRef.current) * 0.5 : 0);
+              const displacement = layerStyle === 'Smooth Legato' && step % 4 === 2 ? beatSeconds * 0.5 : 0;
+              const time = step * gridSeconds + displacement;
               const sourceTime = time * playbackRate;
               const melody = [...upper].reverse().find(event => event.note.time <= sourceTime + 0.08)?.note.midi ?? previousMelody;
               return { time, melody, gap: gridSeconds };
@@ -622,25 +656,27 @@ export function useChordPlayer() {
           const harmony = soundingHarmony.length > 0 ? soundingHarmony : recentHarmony;
           if (harmony.length === 0) return;
           const selected = counterNote(harmony, melody, previousCounter, melody - previousMelody, step);
-          if (!pizzicato && step > 0 && step % 3 === 1 && time > 0.09) {
+          if (layerStyle === 'Smooth Legato' && step > 0 && step % 3 === 1 && time > 0.09) {
             const approach = selected + (melody - previousMelody >= 0 ? -1 : 1);
             violinEvents.push([time - 0.075, {
               name: noteFromMidi(approach),
               duration: 0.065,
               velocity: 0.25,
+              harmony,
             }]);
           }
           const phraseArc = 0.34 + 0.1 * Math.sin(((step % 8) / 7) * Math.PI);
           violinEvents.push([time, {
             name: noteFromMidi(selected),
-            duration: pizzicato ? Math.min(0.25, Math.max(0.09, gap * 0.3)) : gridSeconds * (step % 4 === 3 ? 0.72 : 0.94),
-            velocity: pizzicato ? (step % 4 === 0 ? 0.5 : 0.38) : phraseArc,
+            duration: gridSeconds * (layerStyle === 'Bass Guitar' ? 0.72 : layerStyle === 'Cinematic Pads' ? 1.08 : (step % 4 === 3 ? 0.72 : 0.94)),
+            velocity: layerStyle === 'Bass Guitar' ? (step % 4 === 0 ? 0.52 : 0.38) : layerStyle === 'Cinematic Pads' ? 0.3 : phraseArc,
+            harmony,
           }]);
           previousCounter = selected;
           previousMelody = melody;
         });
         const violinPart = new Tone.Part((time, event) => {
-          if (requestId === songRequestRef.current) violinRef.current?.triggerAttackRelease(event.name, event.duration, time, event.velocity);
+          if (requestId === songRequestRef.current) triggerAccompaniment(event.name, event.duration, time, event.velocity, event.harmony);
         }, violinEvents).start(0);
         songPartsRef.current.push(violinPart);
       }
@@ -690,7 +726,7 @@ export function useChordPlayer() {
         Tone.getDraw().schedule(() => {
           if (songVisualTimerRef.current) clearInterval(songVisualTimerRef.current);
           songVisualTimerRef.current = null;
-          Tone.getContext().lookAhead = 0.025;
+          Tone.getContext().lookAhead = INTERACTIVE_LOOK_AHEAD;
           if (pianoRef.current) pianoRef.current.release = settingsRef.current.pedal ? 1.8 : 0.25;
           reverbRef.current?.wet.rampTo(settingsRef.current.ambience / 100, 0.08);
           songNoteCountsRef.current.clear();
@@ -699,7 +735,7 @@ export function useChordPlayer() {
       }, midi.duration / playbackRate + 0.05));
       songEventIdsRef.current = ids;
       setSongPlayback({ songId: song.id, playing: true, measure: 0, totalMeasures, chord: '—', melodyNote: '—', accompanimentNotes: [], melodyNotes: [], chordNotes: [], progress: 0, activeNotes: [], keyboardSize: requires88Keys ? 88 : 61, midiMode: true });
-      transport.start('+0.15');
+      transport.start(`+${MIDI_START_DELAY}`);
       // Visual state is sampled at 25 FPS. This caps React work regardless of how
       // dense the score becomes and leaves the main thread free for audio.
       const scaledEvents = performanceEvents.map(({ note, hand, performedDuration }) => ({
@@ -840,17 +876,11 @@ export function useChordPlayer() {
       });
 
       if (violinEnabledRef.current) {
-        const pizzicato = violinStyleRef.current === 'Pizzicato';
-        const violinSteps = Math.max(1, Math.ceil(song.beatsPerBar / 2));
+        const layerStyle = violinStyleRef.current;
+        const violinSteps = layerStyle === 'Bass Guitar' ? song.beatsPerBar : layerStyle === 'Cinematic Pads' ? 1 : Math.max(1, Math.ceil(song.beatsPerBar / 2));
         const firstMelody = measure.melody.find(Boolean);
         if (measureIndex === 0 && firstMelody) generatedMelodyNote = Tone.Frequency(firstMelody).toMidi();
-        const violinPoints = pizzicato
-          ? melodyEvents.map(({ note, step }, index) => {
-              const nextStep = melodyEvents[index + 1]?.step ?? measure.melody.length;
-              const gapSteps = nextStep - step;
-              return { position: step, start: measureStart + (step + gapSteps * 0.55) * stepSeconds, slot: gapSteps * stepSeconds, melody: note };
-            }).filter(point => point.slot >= 0.13)
-          : Array.from({ length: violinSteps }, (_, step) => {
+        const violinPoints = Array.from({ length: violinSteps }, (_, step) => {
               const position = Math.floor((step / violinSteps) * measure.melody.length);
               return { position, start: measureStart + (step / violinSteps) * measureSeconds, slot: measureSeconds / violinSteps, melody: measure.melody.slice(0, position + 1).reverse().find(Boolean) };
             });
@@ -859,18 +889,19 @@ export function useChordPlayer() {
           const melodyMidi = nearbyMelody ? Tone.Frequency(nearbyMelody).toMidi() : generatedMelodyNote;
           const selected = counterNote(measure.chordNotes, melodyMidi, generatedCounterNote, melodyMidi - generatedMelodyNote, measureIndex * violinSteps + step);
           const phraseStep = measureIndex * violinSteps + step;
-          if (!pizzicato && phraseStep > 0 && phraseStep % 3 === 1 && point.start > 0.09) {
+          if (layerStyle === 'Smooth Legato' && phraseStep > 0 && phraseStep % 3 === 1 && point.start > 0.09) {
             const approach = selected + (melodyMidi - generatedMelodyNote >= 0 ? -1 : 1);
-            ids.push(transport.scheduleOnce(time => violinRef.current?.triggerAttackRelease(
-              noteFromMidi(approach), 0.065, time, 0.25,
+            ids.push(transport.scheduleOnce(time => triggerAccompaniment(
+              noteFromMidi(approach), 0.065, time, 0.25, measure.chordNotes,
             ), point.start - 0.075));
           }
           const phraseArc = 0.34 + 0.1 * Math.sin(((phraseStep % 8) / 7) * Math.PI);
-          ids.push(transport.scheduleOnce(time => violinRef.current?.triggerAttackRelease(
+          ids.push(transport.scheduleOnce(time => triggerAccompaniment(
             noteFromMidi(selected),
-            pizzicato ? Math.min(0.25, Math.max(0.09, point.slot * 0.3)) : point.slot * 0.9,
+            layerStyle === 'Cinematic Pads' ? measureSeconds * 1.04 : point.slot * (layerStyle === 'Bass Guitar' ? 0.72 : 0.9),
             time,
-            pizzicato ? (step === 0 ? 0.5 : 0.38) : phraseArc,
+            layerStyle === 'Bass Guitar' ? (step === 0 ? 0.52 : 0.38) : layerStyle === 'Cinematic Pads' ? 0.3 : phraseArc,
+            measure.chordNotes,
           ), point.start));
           generatedCounterNote = selected;
           generatedMelodyNote = melodyMidi;
@@ -886,18 +917,18 @@ export function useChordPlayer() {
     // Do not announce the first chord early; its scheduled callback updates every
     // visual on the same audio-clock instant as the first piano attack.
     setSongPlayback({ songId: song.id, playing: true, measure: 0, totalMeasures: song.measures.length, chord: '—', melodyNote: '—', accompanimentNotes: [], melodyNotes: [], chordNotes: [], progress: 0, activeNotes: [], keyboardSize: 61, midiMode: false });
-    transport.start('+0.03');
-  }, [clearSong, configureViolin, stopPatterns]);
+    transport.start(`+${ARRANGEMENT_START_DELAY}`);
+  }, [clearSong, configureViolin, stopPatterns, triggerAccompaniment]);
 
   const stopSong = useCallback(() => {
     clearSong();
     Tone.getTransport().stop();
     pianoRef.current?.releaseAll(Tone.immediate());
-    violinRef.current?.releaseAll(Tone.immediate());
-    Tone.getContext().lookAhead = 0.025;
+    releaseAccompaniment();
+    Tone.getContext().lookAhead = INTERACTIVE_LOOK_AHEAD;
     if (pianoRef.current) pianoRef.current.release = settingsRef.current.pedal ? 1.8 : 0.25;
     reverbRef.current?.wet.rampTo(settingsRef.current.ambience / 100, 0.08);
-  }, [clearSong]);
+  }, [clearSong, releaseAccompaniment]);
 
   return {
     instrument, setInstrument, volume, setVolume, playChord, sustainChord, releaseChord,
