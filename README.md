@@ -43,3 +43,17 @@ src/pages/           Route-level screens
 ```
 
 The app runs entirely in the browser and does not require a backend, database, or externally hosted hand-tracking model.
+
+## License
+
+Copyright (c) 2026 Xenova Labs CBC. Harmony is source-available under the
+[Elastic License 2.0](LICENSE).
+
+You may use, copy, modify, and redistribute the source code subject to the
+license terms. You may not offer Harmony's substantial features as a hosted or
+managed service, circumvent license-key functionality, or remove licensing and
+copyright notices. Modified copies must clearly identify their changes and
+include the license.
+
+Third-party libraries and assets retain their own licenses. See [NOTICE](NOTICE)
+and the attribution files included with those assets.

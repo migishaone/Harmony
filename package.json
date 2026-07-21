@@ -2,6 +2,8 @@
   "name": "harmony",
   "version": "1.0.0",
   "private": true,
+  "license": "Elastic-2.0",
+  "author": "Xenova Labs CBC",
   "type": "module",
   "description": "A touchless musical instrument controlled with hand gestures.",
   "scripts": {
