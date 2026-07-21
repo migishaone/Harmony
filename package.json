@@ -3,7 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "license": "Elastic-2.0",
-  "author": "Xenova Labs CBC",
+  "author": {
+    "name": "Xenova Labs CBC",
+    "email": "contact@xenovalabs.com",
+    "url": "https://xenovalabs.com"
+  },
+  "homepage": "https://github.com/migishaone/Harmony#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/migishaone/Harmony.git"
+  },
+  "bugs": {
+    "url": "https://github.com/migishaone/Harmony/issues"
+  },
   "type": "module",
   "description": "A touchless musical instrument controlled with hand gestures.",
   "scripts": {

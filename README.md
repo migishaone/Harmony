@@ -165,8 +165,25 @@ Third-party libraries and assets remain under their respective licenses. See
 [NOTICE](NOTICE) and the attribution files distributed with those assets,
 including [`public/audio/piano/README.md`](public/audio/piano/README.md).
 
+## About Xenova Labs
+
+Harmony is developed and maintained by **Xenova Labs CBC**, a Kigali-based
+technology company building secure software, cloud infrastructure, and digital
+systems for organizations in Rwanda and beyond.
+
+| | |
+| --- | --- |
+| Website | [xenovalabs.com](https://xenovalabs.com) |
+| Email | [contact@xenovalabs.com](mailto:contact@xenovalabs.com) |
+| LinkedIn | [Xenova Labs](https://www.linkedin.com/company/xenova-labs) |
+| Location | Kigali, Rwanda |
+
+For product support, commercial licensing, partnerships, or responsible
+security disclosure, contact Xenova Labs through the email above. Security
+reports should follow the private process in [SECURITY.md](SECURITY.md).
+
 ---
 
 <p align="center">
-  Built and maintained by <strong>Xenova Labs CBC</strong>.
+  Built in Rwanda by <a href="https://xenovalabs.com"><strong>Xenova Labs CBC</strong></a>.
 </p>
