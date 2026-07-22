@@ -31,7 +31,7 @@ export interface PianoSong {
 
 export const pianoSongs: PianoSong[] = [
   {
-    id: 'heal-the-world', title: 'Heal the World', composer: 'Michael Jackson', key: 'A Major', bpm: 79, beatsPerBar: 4, beatUnit: 4, mood: 'Original MIDI · Melody and harmony · Piano rendering', midiUrl: '/songs/heal-the-world.mid', includeAllPitchedTracks: true, excludedMidiChannels: [1, 5, 6, 7, 8], allowDrums: false, measures: [],
+    id: 'heal-the-world', title: 'Heal the World', composer: 'Michael Jackson', key: 'A Major', bpm: 79, beatsPerBar: 4, beatUnit: 4, mood: 'Original MIDI · Melody and harmony · Piano rendering', midiUrl: '/songs/heal-the-world.mid', includeAllPitchedTracks: true, excludedMidiChannels: [1, 5, 6, 7, 8, 9], allowDrums: false, measures: [],
   },
   {
     id: 'rwanda-nziza', title: 'Rwanda Nziza', composer: 'Rwandan National Anthem', key: 'G Major', bpm: 92, beatsPerBar: 2, beatUnit: 4, mood: 'Original MIDI · Rwanda national anthem · Piano arrangement', midiUrl: '/songs/rwanda.mid', allowDrums: false, measures: [],

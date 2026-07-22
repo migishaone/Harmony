@@ -1,7 +1,8 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import * as Tone from 'tone';
 import { useHandDetection } from '../hooks/useHandDetection';
 import { useChordPlayer } from '../hooks/useChordPlayer';
+import { useMidiKeyboard } from '../hooks/useMidiKeyboard';
 import { keySets, ChordType } from '../data/chords';
 import { ChordWheel } from '../components/ChordWheel';
 import { InstrumentSelector } from '../components/InstrumentSelector';
@@ -20,6 +21,7 @@ export function Home() {
   const [started, setStarted] = useState(false);
   const [activeKeySet, setActiveKeySet] = useState(keySets[0]); // Default C Major
   const [filterType, setFilterType] = useState<ChordType | "All">("All");
+  const [midiRingMode, setMidiRingMode] = useState(false);
   
   const { instrument, setInstrument, volume, setVolume, playChord, releaseChord, pianoSettings, setPianoSettings, pianoReady, performanceNotes, playNote, releaseNote, songPlayback, playSong, stopSong, songTempo, setSongTempo, songKey, setSongKey, drumPattern, setDrumPattern, pianoSound, setPianoSound } = useChordPlayer();
   const {
@@ -30,12 +32,13 @@ export function Home() {
     isPointing,
     handedness,
     videoRef,
-  } = useHandDetection(!songPlayback.midiMode);
+  } = useHandDetection(!songPlayback.playing);
 
   const [activeSector, setActiveSector] = useState<number | null>(null);
   const [directSector, setDirectSector] = useState<number | null>(null);
   const wheelRef = useRef<HTMLDivElement | null>(null);
   const tempoRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const midiChordNoteRef = useRef<number | null>(null);
   const gestureCandidateRef = useRef<{ sector: number | null; since: number }>({ sector: null, since: 0 });
   
   // Filter chords based on selection
@@ -43,6 +46,25 @@ export function Home() {
     if (filterType === "All") return activeKeySet.chords;
     return activeKeySet.chords.filter(c => c.type === filterType);
   }, [activeKeySet, filterType]);
+  const handleMidiChordAttack = useCallback((midi: number) => {
+    if (visibleChords.length === 0) return;
+    midiChordNoteRef.current = midi;
+    // C starts at the first ring sector in every octave; chromatic keys then
+    // move clockwise through the currently visible chords.
+    const sector = (midi % 12) % visibleChords.length;
+    // Prioritize the audio attack; visual state can render on the next frame.
+    playChord(visibleChords[sector]);
+    setDirectSector(sector);
+    setActiveSector(sector);
+  }, [playChord, visibleChords]);
+  const handleMidiChordRelease = useCallback((midi: number) => {
+    if (midiChordNoteRef.current !== midi) return;
+    midiChordNoteRef.current = null;
+    setDirectSector(null);
+    setActiveSector(null);
+    releaseChord(0.18);
+  }, [releaseChord]);
+  const midiKeyboard = useMidiKeyboard(playNote, releaseNote, midiRingMode, handleMidiChordAttack, handleMidiChordRelease);
   const pointerAngle = useMemo(() => {
     if (!pointerPosition || !wheelRef.current) return null;
     const rect = wheelRef.current.getBoundingClientRect();
@@ -54,9 +76,6 @@ export function Home() {
   };
 
   const selectSector = (sector: number | null) => {
-    // The song scheduler owns the shared transport while it is playing. Ring
-    // input is ignored so a click, touch, or pointer-leave cannot stop the song.
-    if (songPlayback.playing) return;
     setDirectSector(sector);
     if (!started) return;
     setActiveSector(sector);
@@ -67,11 +86,10 @@ export function Home() {
   // A key or filter change creates a new mapping; never leave notes from the
   // previous mapping sounding or keep an out-of-range sector selected.
   useEffect(() => {
-    if (songPlayback.playing) return;
     setActiveSector(null);
     setDirectSector(null);
     releaseChord();
-  }, [visibleChords, releaseChord, songPlayback.playing]);
+  }, [visibleChords, releaseChord]);
 
   const handlePlaySong = (song: Parameters<typeof playSong>[0]) => {
     const songKeySet = keySets.find(keySet => keySet.name === song.key);
@@ -112,8 +130,17 @@ export function Home() {
   }, []);
 
   useEffect(() => {
-    // Song playback owns the audio engine. Camera jitter must not select or
-    // release ring chords while a score is being performed.
+    if (!songPlayback.playing) return;
+    // Song mode is intentionally focused: camera/ring input is stopped and
+    // every incoming MIDI note is routed to the playable piano keyboard.
+    setMidiRingMode(false);
+    midiChordNoteRef.current = null;
+    setActiveSector(null);
+    setDirectSector(null);
+    releaseChord(0.12);
+  }, [releaseChord, songPlayback.playing]);
+
+  useEffect(() => {
     if (songPlayback.playing) return;
     if (directSector !== null) return;
     let target: number | null = null;
@@ -168,7 +195,7 @@ export function Home() {
       {!started && <WelcomeOverlay onStart={handleStart} />}
       
       {/* Background Webcam Feed */}
-      <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden bg-slate-950 opacity-20">
+      {!songPlayback.playing && <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden bg-slate-950 opacity-20">
         <video 
           ref={videoRef}
           playsInline
@@ -177,9 +204,9 @@ export function Home() {
           style={{ transform: "scaleX(-1)" }} // Mirror effect
         />
         <div className="pointer-events-none absolute inset-0 bg-background/55" />
-      </div>
+      </div>}
 
-      {detected && isPointing && pointerPosition && <div className="fixed z-30 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary pointer-events-none"
+      {!songPlayback.playing && detected && isPointing && pointerPosition && <div className="fixed z-30 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary pointer-events-none"
         style={{ left: pointerPosition.x, top: pointerPosition.y }} aria-hidden="true" />}
 
       {/* Top Bar */}
@@ -188,13 +215,20 @@ export function Home() {
           <img src="/harmony-logo.svg" alt="Harmony" className="hidden h-9 w-auto sm:block" />
           <div className="px-3 py-1.5 border border-primary bg-primary/10 text-primary font-mono text-xs uppercase tracking-wider flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            {songPlayback.playing && songPlayback.midiMode ? 'MIDI: PURE PIANO' : `CHORD: ${activeSector === null ? 'NONE' : visibleChords[activeSector]?.name}`}
+            {songPlayback.playing ? 'SONG MODE · MIDI KEYS ON' : `CHORD: ${activeSector === null ? 'NONE' : visibleChords[activeSector]?.name}`}
           </div>
           
-          <div className="px-3 py-1.5 border border-border bg-card/50 font-mono text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+          {!songPlayback.playing && <div className="px-3 py-1.5 border border-border bg-card/50 font-mono text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${detected ? 'bg-green-500' : 'bg-red-500'}`} />
             {handedness ?? 'NO'} HAND · FINGERS: {fingerCount} · OPEN: {openness.toFixed(0)}%
+          </div>}
+          <div className="hidden px-3 py-1.5 border border-border bg-card/50 font-mono text-xs text-muted-foreground uppercase tracking-wider items-center gap-2 md:flex" title={midiKeyboard.error ?? midiKeyboard.devices.join(', ')}>
+            <span className={`w-2 h-2 rounded-full ${midiKeyboard.connected ? 'bg-green-500' : 'bg-amber-500'}`} />
+            {!midiKeyboard.supported ? 'MIDI UNSUPPORTED' : midiKeyboard.connected ? `MIDI: ${midiKeyboard.devices.join(', ')}` : midiKeyboard.error ? 'MIDI NOT ALLOWED' : 'MIDI: CONNECT KEYBOARD'}
           </div>
+          {midiKeyboard.connected && !songPlayback.playing && <button type="button" className="hidden border border-primary bg-primary/10 px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-primary md:block" onClick={() => { releaseChord(); setActiveSector(null); setDirectSector(null); setMidiRingMode(current => !current); }} title="Switch MIDI keyboard between piano notes and ring chords">
+            MIDI INPUT: {midiRingMode ? 'RING' : 'KEYS'}
+          </button>}
         </div>
 
         <div className="flex items-center gap-4">
@@ -204,10 +238,10 @@ export function Home() {
       </header>
 
       {/* Main Center Area */}
-      {!(songPlayback.playing && songPlayback.midiMode) && <main className="relative z-10 flex min-h-[420px] flex-1 items-center justify-center p-4 sm:p-6">
+      {!songPlayback.playing && <main className="relative z-10 flex min-h-[420px] flex-1 items-center justify-center p-4 sm:p-6">
         <div className="flex min-h-0 w-full max-w-5xl flex-1 flex-col items-center justify-center gap-4 xl:flex-row xl:gap-6">
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <ChordWheel chords={visibleChords} activeIdx={activeSector} pointerAngle={isPointing ? pointerAngle : null} containerRef={wheelRef} onPointerSectorChange={selectSector} disabled={songPlayback.playing} />
+            <ChordWheel chords={visibleChords} activeIdx={activeSector} pointerAngle={isPointing ? pointerAngle : null} containerRef={wheelRef} onPointerSectorChange={selectSector} />
           </div>
           <ChordNoteList chords={visibleChords} activeIdx={activeSector} />
         </div>
@@ -218,8 +252,8 @@ export function Home() {
         {instrument === 'Grand Piano' && (
           <>
             <SongLibrary playback={songPlayback} ready={pianoReady} tempo={songTempo} onTempoChange={handleSongTempoChange} songKey={songKey} onSongKeyChange={handleSongKeyChange} drumPattern={drumPattern} onDrumPatternChange={handleDrumPatternChange} pianoSound={pianoSound} onPianoSoundChange={setPianoSound} onPlay={handlePlaySong} onStop={stopSong} />
-            {!(songPlayback.playing && songPlayback.midiMode) && <PianoControls settings={pianoSettings} ready={pianoReady} performanceNotes={performanceNotes} onChange={setPianoSettings} />}
-            <PianoKeyboard onNoteAttack={playNote} onNoteRelease={releaseNote} playedNotes={songPlayback.activeNotes} keyCount={songPlayback.keyboardSize} />
+            {!songPlayback.playing && <PianoControls settings={pianoSettings} ready={pianoReady} performanceNotes={performanceNotes} onChange={setPianoSettings} />}
+            <PianoKeyboard onNoteAttack={playNote} onNoteRelease={releaseNote} playedNotes={[...new Set([...songPlayback.activeNotes, ...midiKeyboard.activeNotes])]} keyCount={songPlayback.keyboardSize} />
           </>
         )}
         <KeySelector 

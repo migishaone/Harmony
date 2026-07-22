@@ -66,7 +66,9 @@ const PIANO_SAMPLES: Record<string, string> = {
   A6: 'A6.mp3', C7: 'C7.mp3', 'D#7': 'Ds7.mp3', 'F#7': 'Fs7.mp3',
   A7: 'A7.mp3', C8: 'C8.mp3',
 };
-const INTERACTIVE_LOOK_AHEAD = 0.01;
+// Live MIDI and pointer input should sound immediately. Scheduled songs switch
+// to their own larger look-ahead while playing.
+const INTERACTIVE_LOOK_AHEAD = 0;
 const SONG_LOOK_AHEAD = 0.04;
 const MIDI_START_DELAY = 0.05;
 const ARRANGEMENT_START_DELAY = 0.015;
@@ -133,6 +135,7 @@ function bassPattern(notes: string[], pattern: AccompanimentPattern, beatsPerBar
 export function useChordPlayer() {
   const synthRef = useRef<Tone.PolySynth | null>(null);
   const pianoRef = useRef<Tone.Sampler | null>(null);
+  const livePianoRef = useRef<Tone.Sampler | null>(null);
   const chordPianoRef = useRef<Tone.Sampler | null>(null);
   const loopsRef = useRef<Tone.Loop[]>([]);
   const currentChordRef = useRef<ChordDef | null>(null);
@@ -145,6 +148,7 @@ export function useChordPlayer() {
   const drumSynthsRef = useRef<{ kick: Tone.MembraneSynth; snare: Tone.NoiseSynth; metal: Tone.MetalSynth } | null>(null);
   const songVisualTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const songNoteCountsRef = useRef<Map<string, number>>(new Map());
+  const songPlayingRef = useRef(false);
   const instrumentRef = useRef<InstrumentName>('Grand Piano');
   const [instrument, setInstrumentState] = useState<InstrumentName>('Grand Piano');
   const [volume, setVolume] = useState(2);
@@ -162,6 +166,7 @@ export function useChordPlayer() {
   const pianoSoundRef = useRef<PianoSound>('Open Stage Grand');
   const synthVolumeRef = useRef<Tone.Volume | null>(null);
   const pianoVolumeRef = useRef<Tone.Volume | null>(null);
+  const livePianoVolumeRef = useRef<Tone.Volume | null>(null);
   const drumVolumeRef = useRef<Tone.Volume | null>(null);
   const pianoEqRef = useRef<Tone.EQ3 | null>(null);
   const reverbRef = useRef<Tone.Reverb | null>(null);
@@ -180,9 +185,13 @@ export function useChordPlayer() {
     const compressor = new Tone.Compressor({ threshold: -16, ratio: 2.2, attack: 0.012, release: 0.24 }).connect(chorus);
     const eq = new Tone.EQ3({ low: 2.2, mid: 0.8, high: 1.8, lowFrequency: 210, highFrequency: 3200 }).connect(compressor);
     const piano = new Tone.Sampler({ urls: PIANO_SAMPLES, baseUrl: '/audio/piano/', attack: 0, release: 1.2, onload: () => setPianoReady(true) }).connect(eq);
-    // Ring chords have their own voice. Releasing a ring chord can therefore
-    // never release notes currently owned by song playback.
-    const chordPiano = new Tone.Sampler({ urls: PIANO_SAMPLES, baseUrl: '/audio/piano/', attack: 0, release: 1.2 }).connect(eq);
+    // Live keys use an independent, direct output path. This both prevents note
+    // releases from affecting the song and avoids latency from the song FX chain.
+    const livePianoVolume = new Tone.Volume(volume).toDestination();
+    const livePiano = new Tone.Sampler({ urls: PIANO_SAMPLES, baseUrl: '/audio/piano/', attack: 0, release: 1.2 }).connect(livePianoVolume);
+    // Ring chords have their own voice on the direct live-output path. This
+    // avoids the song compressor/reverb latency while keeping song notes isolated.
+    const chordPiano = new Tone.Sampler({ urls: PIANO_SAMPLES, baseUrl: '/audio/piano/', attack: 0, release: 0.18 }).connect(livePianoVolume);
     const drumVolume = new Tone.Volume(volume - 6).connect(limiter);
     const drumCompressor = new Tone.Compressor({ threshold: -12, ratio: 3.5, attack: 0.004, release: 0.12 }).connect(drumVolume);
     const kick = new Tone.MembraneSynth({ pitchDecay: 0.028, octaves: 6.5, envelope: { attack: 0.001, decay: 0.24, sustain: 0, release: 0.06 } }).connect(drumCompressor);
@@ -190,9 +199,11 @@ export function useChordPlayer() {
     const metal = new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.075, release: 0.025 }, harmonicity: 5.1, modulationIndex: 20, resonance: 4200, octaves: 1.3 }).connect(drumCompressor);
     synthRef.current = synth;
     pianoRef.current = piano;
+    livePianoRef.current = livePiano;
     chordPianoRef.current = chordPiano;
     synthVolumeRef.current = synthVolume;
     pianoVolumeRef.current = pianoVolume;
+    livePianoVolumeRef.current = livePianoVolume;
     drumVolumeRef.current = drumVolume;
     pianoEqRef.current = eq;
     reverbRef.current = reverb;
@@ -204,7 +215,7 @@ export function useChordPlayer() {
       songPartsRef.current.forEach(part => part.dispose());
       if (songVisualTimerRef.current) clearInterval(songVisualTimerRef.current);
       songEventIdsRef.current.forEach(id => Tone.getTransport().clear(id));
-      kick.dispose(); snare.dispose(); metal.dispose(); drumCompressor.dispose(); drumVolume.dispose(); chordPiano.dispose(); piano.dispose(); eq.dispose(); compressor.dispose(); chorus.dispose(); widener.dispose(); reverb.dispose(); pianoVolume.dispose(); synth.dispose(); synthVolume.dispose(); limiter.dispose();
+      kick.dispose(); snare.dispose(); metal.dispose(); drumCompressor.dispose(); drumVolume.dispose(); chordPiano.dispose(); livePiano.dispose(); livePianoVolume.dispose(); piano.dispose(); eq.dispose(); compressor.dispose(); chorus.dispose(); widener.dispose(); reverb.dispose(); pianoVolume.dispose(); synth.dispose(); synthVolume.dispose(); limiter.dispose();
     };
   }, []);
 
@@ -225,6 +236,7 @@ export function useChordPlayer() {
   useEffect(() => {
     synthVolumeRef.current?.volume.rampTo(volume, 0.05);
     pianoVolumeRef.current?.volume.rampTo(volume, 0.05);
+    livePianoVolumeRef.current?.volume.rampTo(volume, 0.02);
     drumVolumeRef.current?.volume.rampTo(volume - 6, 0.05);
   }, [volume]);
 
@@ -237,6 +249,7 @@ export function useChordPlayer() {
   }, []);
 
   const clearSong = useCallback(() => {
+    songPlayingRef.current = false;
     songRequestRef.current += 1;
     const transport = Tone.getTransport();
     songEventIdsRef.current.forEach(id => transport.clear(id));
@@ -282,11 +295,11 @@ export function useChordPlayer() {
     if (transport.state !== 'started') transport.start();
   }, []);
 
-  const releaseChord = useCallback(() => {
+  const releaseChord = useCallback((releaseSeconds?: number) => {
     stopPatterns();
     synthRef.current?.releaseAll(Tone.immediate());
     if (chordPianoRef.current) {
-      chordPianoRef.current.release = settingsRef.current.pedal && instrumentRef.current === 'Grand Piano' ? 1.8 : 0.25;
+      chordPianoRef.current.release = releaseSeconds ?? (settingsRef.current.pedal && instrumentRef.current === 'Grand Piano' ? 1.8 : 0.25);
       chordPianoRef.current.releaseAll(Tone.immediate());
     }
     currentChordRef.current = null;
@@ -297,12 +310,20 @@ export function useChordPlayer() {
     if (currentChordRef.current?.notes.join('|') === chord.notes.join('|')) return;
     stopPatterns();
     synthRef.current?.releaseAll(Tone.immediate());
-    chordPianoRef.current?.releaseAll(Tone.immediate());
+    const attackTime = Tone.immediate();
+    if (chordPianoRef.current) {
+      // A short overlap makes fast MIDI chord changes legato without producing
+      // the long, muddy tail used by the performance pedal setting.
+      chordPianoRef.current.release = songPlayingRef.current ? 0.12 : 0.18;
+      chordPianoRef.current.releaseAll(attackTime);
+    }
     if (instrumentRef.current === 'Grand Piano' && chordPianoRef.current?.loaded) {
       const voicedNotes = fullVoicing(chord.notes, settingsRef.current.voicing);
-      chordPianoRef.current.triggerAttack(voicedNotes, Tone.immediate(), 0.48);
+      chordPianoRef.current.triggerAttack(voicedNotes, attackTime, 0.48);
       setPerformanceNotes({ bass: '—', chord: voicedNotes.join(' · '), arpeggio: '—' });
-      startPatterns(chord);
+      // During a song, the transport belongs to the score. The ring still plays
+      // its chord, but does not start accompaniment loops or change song tempo.
+      if (!songPlayingRef.current) startPatterns(chord);
     } else synthRef.current?.triggerAttack(chord.notes, Tone.immediate());
     currentChordRef.current = chord;
   }, [releaseChord, startPatterns, stopPatterns]);
@@ -360,17 +381,17 @@ export function useChordPlayer() {
   }, []);
 
   const playNote = useCallback((note: string) => {
-    if (instrumentRef.current === 'Grand Piano' && pianoRef.current?.loaded) {
-      pianoRef.current.triggerAttack(note, Tone.immediate(), 0.78);
+    if (instrumentRef.current === 'Grand Piano' && livePianoRef.current?.loaded) {
+      livePianoRef.current.triggerAttack(note, Tone.immediate(), 0.78);
     } else {
       synthRef.current?.triggerAttack(note, Tone.immediate());
     }
   }, []);
 
   const releaseNote = useCallback((note: string) => {
-    if (instrumentRef.current === 'Grand Piano' && pianoRef.current?.loaded) {
-      pianoRef.current.release = settingsRef.current.pedal ? 1.8 : 0.25;
-      pianoRef.current.triggerRelease(note, Tone.immediate());
+    if (instrumentRef.current === 'Grand Piano' && livePianoRef.current?.loaded) {
+      livePianoRef.current.release = settingsRef.current.pedal ? 1.8 : 0.25;
+      livePianoRef.current.triggerRelease(note, Tone.immediate());
     } else {
       synthRef.current?.triggerRelease(note, Tone.immediate());
     }
@@ -385,6 +406,7 @@ export function useChordPlayer() {
     synthRef.current?.releaseAll(Tone.immediate());
     pianoRef.current?.releaseAll(Tone.immediate());
     if (!pianoRef.current?.loaded) return;
+    songPlayingRef.current = true;
     const chromatic = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const sourceRoot = song.key.split(' ')[0];
     const targetRoot = songKeyRef.current.split(' ')[0];
@@ -437,7 +459,9 @@ export function useChordPlayer() {
       // their tick/duration/pitch fingerprints and discarded to prevent doubling.
       const trackFingerprints = new Set<string>();
       const performanceTracks = midi.tracks.filter(track => {
-        if (track.notes.length === 0 || track.instrument.percussion || song.excludedMidiChannels?.includes(track.channel) || (!song.includeAllPitchedTracks && track.instrument.family !== 'piano')) return false;
+        // MIDI channel 10 (zero-based channel 9) is reserved for percussion.
+        // Exclude it even when a malformed file reports a pitched instrument.
+        if (track.notes.length === 0 || track.channel === 9 || track.instrument.percussion || song.excludedMidiChannels?.includes(track.channel) || (!song.includeAllPitchedTracks && track.instrument.family !== 'piano')) return false;
         // Some exports duplicate each hand with tiny humanized tick offsets, so an
         // exact event fingerprint is insufficient. Musical role + event count
         // identifies those copies while preserving distinct RH and LH tracks.
@@ -535,6 +559,7 @@ export function useChordPlayer() {
         pianoRef.current?.releaseAll(time);
         transport.stop(time + 0.02);
         Tone.getDraw().schedule(() => {
+          songPlayingRef.current = false;
           if (songVisualTimerRef.current) clearInterval(songVisualTimerRef.current);
           songVisualTimerRef.current = null;
           Tone.getContext().lookAhead = INTERACTIVE_LOOK_AHEAD;
@@ -708,7 +733,10 @@ export function useChordPlayer() {
 
     const totalSeconds = song.measures.length * measureSeconds;
     ids.push(transport.scheduleOnce(time => {
-      Tone.getDraw().schedule(() => setSongPlayback(current => ({ ...current, playing: false, progress: 100, melodyNote: '—', accompanimentNotes: [], melodyNotes: [], chordNotes: [], activeNotes: [] })), time);
+      Tone.getDraw().schedule(() => {
+        songPlayingRef.current = false;
+        setSongPlayback(current => ({ ...current, playing: false, progress: 100, melodyNote: '—', accompanimentNotes: [], melodyNotes: [], chordNotes: [], activeNotes: [] }));
+      }, time);
     }, totalSeconds));
     songEventIdsRef.current = ids;
     // Do not announce the first chord early; its scheduled callback updates every
